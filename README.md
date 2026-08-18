@@ -121,6 +121,7 @@ gh attestation verify main.js -R NeDDy3z/filen-obsidian
 - `@filen/sdk` calls itself a work in progress. The version is pinned exactly.
 - Files are held in memory during transfer, so exclude very large attachments.
 - No file watcher beyond the triggers above, so notes can be up to one interval stale.
+- Requires Obsidian 1.13.0 or later, since the settings use the declarative settings API added in that release.
 
 ## License
 

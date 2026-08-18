@@ -5,8 +5,10 @@ import {
 	Platform,
 	Plugin,
 	PluginSettingTab,
-	Setting,
 	type App,
+	type ButtonComponent,
+	type Setting,
+	type SettingDefinitionItem,
 	type TAbstractFile,
 } from "obsidian";
 import type { FilenSDKConfig } from "@filen/sdk";
@@ -65,11 +67,6 @@ type CredentialKind = "email" | "password" | "code";
  */
 function normalizeCredential(kind: CredentialKind, raw: string): string {
 	return kind === "password" ? raw.replace(/[\r\n]+/g, "") : raw.replace(/\s+/g, "");
-}
-
-function positiveOrZero(raw: string): number {
-	const n = Number(raw);
-	return Number.isFinite(n) && n > 0 ? n : 0;
 }
 
 async function pool<T>(items: T[], limit: number, fn: (item: T) => Promise<void>): Promise<void> {
@@ -352,223 +349,214 @@ class FilenSyncSettingTab extends PluginSettingTab {
 		this.plugin = plugin;
 	}
 
-	/** Mobile keyboards otherwise autocapitalise and autocorrect credentials into garbage. */
-	private credentialField(
-		root: HTMLElement,
-		opts: { name: string; kind: CredentialKind; desc?: string; placeholder?: string; set: (v: string) => void },
-	): void {
-		const setting = new Setting(root).setName(opts.name);
-		if (opts.desc) setting.setDesc(opts.desc);
+	/** Credentials being typed are transient, so they never reach plugin.settings. */
+	getControlValue(key: string): unknown {
+		if (key === "email") return this.email;
+		if (key === "twoFactor") return this.twoFactor;
+		return (this.plugin.settings as unknown as Record<string, unknown>)[key];
+	}
 
+	async setControlValue(key: string, value: unknown): Promise<void> {
+		if (key === "email") {
+			this.email = normalizeCredential("email", String(value));
+			return;
+		}
+		if (key === "twoFactor") {
+			this.twoFactor = normalizeCredential("code", String(value));
+			return;
+		}
+		const stored = key === "remoteRoot" ? String(value).replace(/^\/+|\/+$/g, "") : value;
+		(this.plugin.settings as unknown as Record<string, unknown>)[key] = stored;
+		await this.plugin.saveSettings();
+	}
+
+	/**
+	 * Mobile keyboards otherwise autocapitalise and autocorrect credentials into garbage, and
+	 * the declarative text control cannot mask a password, so these stay hand-rendered.
+	 */
+	private credentialField(setting: Setting, kind: CredentialKind, placeholder?: string): void {
 		setting.addText((t) => {
-			if (opts.placeholder) t.setPlaceholder(opts.placeholder);
-			if (opts.kind === "password") t.inputEl.type = "password";
+			if (placeholder) t.setPlaceholder(placeholder);
+			if (kind === "password") t.inputEl.type = "password";
 			// Attributes, not properties: the autocapitalize property reflects "off" back as "none".
 			t.inputEl.setAttribute("autocapitalize", "off");
 			t.inputEl.setAttribute("autocorrect", "off");
 			t.inputEl.setAttribute("autocomplete", "off");
 			t.inputEl.setAttribute("spellcheck", "false");
 			// Fires for pasted text too, so a pasted value is cleaned up the same way.
-			t.onChange((v) => opts.set(normalizeCredential(opts.kind, v)));
+			t.onChange((v) => {
+				const clean = normalizeCredential(kind, v);
+				if (kind === "email") this.email = clean;
+				else if (kind === "password") this.password = clean;
+				else this.twoFactor = clean;
+			});
 		});
 	}
 
-	display(): void {
-		const { containerEl: root } = this;
-		root.empty();
-
-		new Setting(root).setName("Account").setHeading();
-
-		if (this.plugin.settings.credentials) {
-			new Setting(root)
-				.setName("Logged in")
-				.setDesc(this.plugin.settings.accountEmail || "Account connected.")
-				.addButton((b) =>
-					b.setButtonText("Log out").onClick(async () => {
-						this.plugin.settings.credentials = null;
-						this.plugin.settings.accountEmail = "";
-						await this.plugin.saveSettings();
-						this.display();
-					}),
-				);
-			new Setting(root)
-				.setName("Check connection")
-				.setDesc("Uploads, downloads, compares and deletes a small test file.")
-				.addButton((b) =>
-					b.setButtonText("Run check").onClick(async () => {
-						b.setDisabled(true).setButtonText("Checking");
-						try {
-							const remote = this.plugin.newRemote();
-							await remote.connect(this.plugin.settings.remoteRoot);
-							await remote.checkConnection();
-							new Notice("Filen: connection works.");
-						} catch (err) {
-							console.error("[filen-sync]", err);
-							new Notice(`Filen check failed: ${err instanceof Error ? err.message : String(err)}`);
-						} finally {
-							b.setDisabled(false).setButtonText("Run check");
-						}
-					}),
-				);
-		} else {
-			this.credentialField(root, {
-				name: "Email",
-				kind: "email",
-				placeholder: "you@example.com",
-				set: (v) => {
-					this.email = v;
-				},
-			});
-			this.credentialField(root, {
-				name: "Password",
-				kind: "password",
-				set: (v) => {
-					this.password = v;
-				},
-			});
-			this.credentialField(root, {
-				name: "Two-factor code",
-				kind: "code",
-				desc: "Leave empty if two-factor is off. A recovery key works here too.",
-				set: (v) => {
-					this.twoFactor = v;
-				},
-			});
-			new Setting(root)
-				.setDesc("Only the derived account keys are stored. The password is never saved.")
-				.addButton((b) =>
-					b
-						.setButtonText("Log in")
-						.setCta()
-						.onClick(async () => {
-							b.setDisabled(true).setButtonText("Logging in");
-							try {
-								this.plugin.settings.credentials = await FilenRemote.login(this.email, this.password, this.twoFactor);
-								this.password = "";
-								this.twoFactor = "";
-								this.plugin.settings.accountEmail = await this.plugin.newRemote().accountEmail();
-								await this.plugin.saveSettings();
-								new Notice(`Filen: logged in as ${this.plugin.settings.accountEmail}`);
-								this.display();
-							} catch (err) {
-								console.error("[filen-sync]", err);
-								new Notice(`Filen login failed: ${err instanceof Error ? err.message : String(err)}`);
-								b.setDisabled(false).setButtonText("Log in");
-							}
-						}),
-				);
+	private async logIn(button: ButtonComponent): Promise<void> {
+		button.setDisabled(true).setButtonText("Logging in");
+		try {
+			this.plugin.settings.credentials = await FilenRemote.login(this.email, this.password, this.twoFactor);
+			this.password = "";
+			this.twoFactor = "";
+			this.plugin.settings.accountEmail = await this.plugin.newRemote().accountEmail();
+			await this.plugin.saveSettings();
+			new Notice(`Filen: logged in as ${this.plugin.settings.accountEmail}`);
+			this.update();
+		} catch (err) {
+			console.error("[filen-sync]", err);
+			new Notice(`Filen login failed: ${err instanceof Error ? err.message : String(err)}`);
+			button.setDisabled(false).setButtonText("Log in");
 		}
+	}
 
-		new Setting(root).setName("Sync").setHeading();
+	private async checkConnection(button: ButtonComponent): Promise<void> {
+		button.setDisabled(true).setButtonText("Checking");
+		try {
+			const remote = this.plugin.newRemote();
+			await remote.connect(this.plugin.settings.remoteRoot);
+			await remote.checkConnection();
+			new Notice("Filen: connection works.");
+		} catch (err) {
+			console.error("[filen-sync]", err);
+			new Notice(`Filen check failed: ${err instanceof Error ? err.message : String(err)}`);
+		} finally {
+			button.setDisabled(false).setButtonText("Run check");
+		}
+	}
 
-		new Setting(root)
-			.setName("Folder on Filen")
-			.setDesc("Path inside your Filen drive. Created if it does not exist.")
-			.addText((t) =>
-				t.setValue(this.plugin.settings.remoteRoot).onChange(async (v) => {
-					this.plugin.settings.remoteRoot = v.replace(/^\/+|\/+$/g, "");
-					await this.plugin.saveSettings();
-				}),
-			);
+	getSettingDefinitions(): SettingDefinitionItem[] {
+		const loggedIn = () => this.plugin.settings.credentials !== null;
+		const loggedOut = () => this.plugin.settings.credentials === null;
 
-		new Setting(root)
-			.setName("Direction")
-			.setDesc(
-				"One-way modes treat one side as the source of truth: anything the other side deleted " +
-					"comes back on the next sync.",
-			)
-			.addDropdown((d) =>
-				d
-					.addOption("both", "Both ways")
-					.addOption("push", "Vault to Filen only")
-					.addOption("pull", "Filen to vault only")
-					.addOption("none", "Off, do not sync")
-					.setValue(this.plugin.settings.direction)
-					.onChange(async (v) => {
-						this.plugin.settings.direction = v as SyncDirection;
-						await this.plugin.saveSettings();
-					}),
-			);
-
-		new Setting(root)
-			.setName("Sync after you stop typing")
-			.setDesc(
-				"Seconds of no edits before syncing. 0 turns it off. Waits for the whole vault to go quiet, " +
-					"so it runs once after a writing session rather than once per keystroke. Applies after a reload.",
-			)
-			.addText((t) =>
-				t.setValue(String(this.plugin.settings.idleSeconds)).onChange(async (v) => {
-					this.plugin.settings.idleSeconds = positiveOrZero(v);
-					await this.plugin.saveSettings();
-				}),
-			);
-
-		new Setting(root)
-			.setName("Auto-sync interval")
-			.setDesc("Minutes between automatic syncs. 0 turns it off. Applies after a reload.")
-			.addText((t) =>
-				t.setValue(String(this.plugin.settings.intervalMinutes)).onChange(async (v) => {
-					this.plugin.settings.intervalMinutes = positiveOrZero(v);
-					await this.plugin.saveSettings();
-				}),
-			);
-
-		new Setting(root)
-			.setName("Sync on startup")
-			.setDesc("Runs one sync shortly after Obsidian opens, so you begin on the newest version of your notes.")
-			.addToggle((t) =>
-				t.setValue(this.plugin.settings.syncOnStartup).onChange(async (v) => {
-					this.plugin.settings.syncOnStartup = v;
-					await this.plugin.saveSettings();
-				}),
-			);
-
-		new Setting(root)
-			.setName(`Sync the ${this.app.vault.configDir} folder`)
-			.setDesc(
-				"Window layout is never synced in any mode, since Obsidian rewrites it constantly and devices " +
-					"would fight over it.",
-			)
-			.addDropdown((d) =>
-				d
-					.addOption("off", "Off, notes only")
-					.addOption("plugins", "Plugins and themes")
-					.addOption("all", "Everything except window layout")
-					.setValue(this.plugin.settings.configSync)
-					.onChange(async (v) => {
-						this.plugin.settings.configSync = v as ConfigSyncMode;
-						await this.plugin.saveSettings();
-					}),
-			);
-
-		new Setting(root)
-			.setName("Exclude")
-			.setDesc("One glob per line, matched against vault paths. * stops at /, ** does not.")
-			.addTextArea((t) =>
-				t
-					.setPlaceholder("*.pdf\nattachments/**")
-					.setValue(this.plugin.settings.excludes)
-					.onChange(async (v) => {
-						this.plugin.settings.excludes = v;
-						await this.plugin.saveSettings();
-					}),
-			);
-
-		new Setting(root)
-			.setName("Force sync")
-			.setDesc(
-				"Reconciles as if this device had never synced. Nothing is deleted on either side. Files that " +
-					"differ are kept as both copies.",
-			)
-			.addButton((b) =>
-				b.setButtonText("Force sync now").onClick(async () => {
-					b.setDisabled(true).setButtonText("Syncing");
-					try {
-						await this.plugin.sync(false, { ignoreSnapshot: true });
-					} finally {
-						b.setDisabled(false).setButtonText("Force sync now");
-					}
-				}),
-			);
+		return [
+			{
+				type: "group",
+				heading: "Account",
+				items: [
+					{
+						name: "Logged in",
+						desc: this.plugin.settings.accountEmail || "Account connected.",
+						visible: loggedIn,
+						render: (setting) => {
+							setting.addButton((b) =>
+								b.setButtonText("Log out").onClick(async () => {
+									this.plugin.settings.credentials = null;
+									this.plugin.settings.accountEmail = "";
+									await this.plugin.saveSettings();
+									this.update();
+								}),
+							);
+						},
+					},
+					{
+						name: "Check connection",
+						desc: "Uploads, downloads, compares and deletes a small test file.",
+						visible: loggedIn,
+						render: (setting) => {
+							setting.addButton((b) => b.setButtonText("Run check").onClick(() => this.checkConnection(b)));
+						},
+					},
+					{
+						name: "Email",
+						visible: loggedOut,
+						render: (setting) => this.credentialField(setting, "email", "you@example.com"),
+					},
+					{
+						name: "Password",
+						visible: loggedOut,
+						render: (setting) => this.credentialField(setting, "password"),
+					},
+					{
+						name: "Two-factor code",
+						desc: "Leave empty if two-factor is off. A recovery key works here too.",
+						visible: loggedOut,
+						render: (setting) => this.credentialField(setting, "code"),
+					},
+					{
+						name: "Log in",
+						desc: "Only the derived account keys are stored. The password is never saved.",
+						visible: loggedOut,
+						render: (setting) => {
+							setting.addButton((b) => b.setButtonText("Log in").setCta().onClick(() => this.logIn(b)));
+						},
+					},
+				],
+			},
+			{
+				type: "group",
+				heading: "Sync",
+				items: [
+					{
+						name: "Folder on Filen",
+						desc: "Path inside your Filen drive. Created if it does not exist.",
+						control: { type: "text", key: "remoteRoot", placeholder: "Obsidian/My vault" },
+					},
+					{
+						name: "Direction",
+						desc: "One-way modes treat one side as the source of truth: anything the other side deleted comes back on the next sync.",
+						control: {
+							type: "dropdown",
+							key: "direction",
+							options: {
+								both: "Both ways",
+								push: "Vault to Filen only",
+								pull: "Filen to vault only",
+								none: "Off, do not sync",
+							},
+						},
+					},
+					{
+						name: "Sync after you stop typing",
+						desc: "Seconds of no edits before syncing. 0 turns it off. Waits for the whole vault to go quiet, so it runs once after a writing session rather than once per keystroke. Applies after a reload.",
+						control: { type: "number", key: "idleSeconds", min: 0, step: 1, defaultValue: 0 },
+					},
+					{
+						name: "Auto-sync interval",
+						desc: "Minutes between automatic syncs. 0 turns it off. Applies after a reload.",
+						control: { type: "number", key: "intervalMinutes", min: 0, step: 1, defaultValue: 0 },
+					},
+					{
+						name: "Sync on startup",
+						desc: "Runs one sync shortly after Obsidian opens, so you begin on the newest version of your notes.",
+						control: { type: "toggle", key: "syncOnStartup", defaultValue: true },
+					},
+					{
+						name: `Sync the ${this.app.vault.configDir} folder`,
+						desc: "Window layout is never synced in any mode, since Obsidian rewrites it constantly and devices would fight over it.",
+						control: {
+							type: "dropdown",
+							key: "configSync",
+							options: {
+								off: "Off, notes only",
+								plugins: "Plugins and themes",
+								all: "Everything except window layout",
+							},
+						},
+					},
+					{
+						name: "Exclude",
+						desc: "One glob per line, matched against vault paths. * stops at /, ** does not.",
+						control: { type: "textarea", key: "excludes", placeholder: "*.pdf\nattachments/**", rows: 4 },
+					},
+					{
+						name: "Force sync",
+						desc: "Reconciles as if this device had never synced. Nothing is deleted on either side. Files that differ are kept as both copies.",
+						render: (setting) => {
+							setting.addButton((b) =>
+								b.setButtonText("Force sync now").onClick(async () => {
+									b.setDisabled(true).setButtonText("Syncing");
+									try {
+										await this.plugin.sync(false, { ignoreSnapshot: true });
+									} finally {
+										b.setDisabled(false).setButtonText("Force sync now");
+									}
+								}),
+							);
+						},
+					},
+				],
+			},
+		];
 	}
 }

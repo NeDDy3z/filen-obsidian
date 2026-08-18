@@ -101,7 +101,7 @@ npm run build   # typecheck and minified build
 
 `src/filen.ts` avoids `sdk.fs()` deliberately. Those helpers resolve paths through an internal cache only `sdk.fs().readdir()` fills, and `sdk.fs().writeFile()` is node-only. One `getDirectoryTree()` call gives the whole subtree instead, and uploads go through `cloud().uploadWebFile()`.
 
-## Good to know
+## Caveats
 
 - Credentials sit unencrypted in `.obsidian/plugins/filen-sync/data.json`, as with any Obsidian sync plugin. They grant full access to your Filen drive, so treat vault backups as sensitive.
 - `@filen/sdk` calls itself a work in progress. The version is pinned exactly.

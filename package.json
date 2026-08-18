@@ -1,0 +1,28 @@
+{
+  "name": "filen-obsidian",
+  "version": "0.1.0",
+  "description": "Sync your Obsidian vault with Filen end-to-end encrypted cloud storage",
+  "main": "main.js",
+  "type": "module",
+  "scripts": {
+    "dev": "node esbuild.config.mjs",
+    "build": "tsc --noEmit && node esbuild.config.mjs production"
+  },
+  "keywords": [
+    "obsidian",
+    "filen",
+    "sync"
+  ],
+  "license": "Apache-2.0",
+  "devDependencies": {
+    "esbuild": "^0.24.0",
+    "obsidian": "latest",
+    "typescript": "^5.7.0"
+  },
+  "dependencies": {
+    "@filen/sdk": "0.4.2",
+    "buffer": "^6.0.3",
+    "events": "^3.3.0",
+    "path-browserify": "^1.0.1"
+  }
+}

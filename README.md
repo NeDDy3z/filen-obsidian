@@ -107,6 +107,12 @@ npm run build   # typecheck and minified build
 | `src/filen.ts` | The Filen side, via the SDK's `cloud()` calls |
 | `src/main.ts` | Plugin, settings, commands, action executor |
 
+Releases are built by GitHub Actions, not locally. Push a tag matching the version in `manifest.json` and `.github/workflows/release.yml` builds `main.js`, signs it with a [build provenance attestation](https://docs.github.com/en/actions/security-for-github-actions/using-artifact-attestations/using-artifact-attestations-to-establish-provenance-for-builds), and publishes the release. That lets anyone confirm the shipped bundle came from this source rather than someone's laptop:
+
+```bash
+gh attestation verify main.js -R NeDDy3z/filen-obsidian
+```
+
 `src/filen.ts` avoids `sdk.fs()` deliberately. Those helpers resolve paths through an internal cache only `sdk.fs().readdir()` fills, and `sdk.fs().writeFile()` is node-only. One `getDirectoryTree()` call gives the whole subtree instead, and uploads go through `cloud().uploadWebFile()`.
 
 ## Caveats

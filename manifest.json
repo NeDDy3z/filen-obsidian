@@ -1,7 +1,7 @@
 {
   "id": "filen-sync",
   "name": "Filen Sync",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "minAppVersion": "1.13.0",
   "description": "Sync your vault with Filen end-to-end encrypted cloud storage.",
   "author": "Erik Vaněk",

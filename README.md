@@ -123,6 +123,37 @@ gh attestation verify main.js -R NeDDy3z/filen-obsidian
 - No file watcher beyond the triggers above, so notes can be up to one interval stale.
 - Requires Obsidian 1.13.0 or later, since the settings use the declarative settings API added in that release.
 
+## Contributing
+
+Issues and pull requests are welcome. The plugin is small on purpose, so the bar for adding a setting or a dependency is high: if a few lines of plain code will do, prefer that.
+
+Getting set up:
+
+```bash
+git clone https://github.com/NeDDy3z/filen-obsidian
+cd filen-obsidian
+npm install
+npm run dev
+```
+
+`npm run dev` rebuilds `main.js` on every change. To try it in a real vault, symlink the repo into that vault's plugin folder and reload Obsidian after each build:
+
+```bash
+ln -s "$(pwd)" "<your vault>/.obsidian/plugins/filen-sync"
+```
+
+Use a scratch vault rather than your real notes. This plugin deletes files on both sides when the decision table says to, and a bug in that table is the kind that eats notes.
+
+Before opening a pull request, run `npm run build`, which typechecks and produces the bundle. Keep an eye on the size of `main.js`: most of it is the Filen SDK, and anything that pulls in another large dependency needs a good reason.
+
+A few conventions:
+
+- Commit subjects read as plain past-tense verbs, for example "Added the sync direction dropdown" or "Removed the redundant snapshot write".
+- Comments explain why, not what. If a comment restates the code, delete it. The ones worth keeping record something you cannot see from the code, like why `sdk.fs()` is avoided or why `workspace.json` is never synced.
+- Releases are cut by pushing a tag that matches the version in `manifest.json`. GitHub Actions builds, signs and publishes it.
+
+Contributions are accepted under the same license as the project.
+
 ## License
 
 Copyright 2026 Erik Vaněk. Licensed under the [Apache License, Version 2.0](http://www.apache.org/licenses/LICENSE-2.0).

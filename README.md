@@ -2,6 +2,8 @@
 
 Sync your vault with [Filen](https://filen.io) end-to-end encrypted cloud storage, on desktop and mobile. Talks to Filen directly through the official [SDK](https://github.com/FilenCloudDienste/filen-sdk-ts), so there is no server to run and nothing to configure outside Obsidian.
 
+**Back up your vault before using this.** It is early software that has not yet been run against a real Filen account, and a sync plugin writes and deletes files on both sides by design. Deletions go to a trash you can recover from and conflicts keep both copies, but neither is a substitute for a copy of your notes somewhere this plugin cannot reach.
+
 ## Install
 
 Not in the community plugin list yet. Until it is, install it by hand:
@@ -99,7 +101,7 @@ npm run build   # typecheck and minified build
 
 `src/filen.ts` avoids `sdk.fs()` deliberately. Those helpers resolve paths through an internal cache only `sdk.fs().readdir()` fills, and `sdk.fs().writeFile()` is node-only. One `getDirectoryTree()` call gives the whole subtree instead, and uploads go through `cloud().uploadWebFile()`.
 
-## Good to know
+## Caveats
 
 - Credentials sit unencrypted in `.obsidian/plugins/filen-sync/data.json`, as with any Obsidian sync plugin. They grant full access to your Filen drive, so treat vault backups as sensitive.
 - `@filen/sdk` calls itself a work in progress. The version is pinned exactly.

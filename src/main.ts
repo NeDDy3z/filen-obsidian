@@ -8,7 +8,6 @@ import {
 	Setting,
 	type App,
 	type TAbstractFile,
-	type TextComponent,
 } from "obsidian";
 import type { FilenSDKConfig } from "@filen/sdk";
 import { FilenRemote } from "./filen.ts";
@@ -353,10 +352,7 @@ class FilenSyncSettingTab extends PluginSettingTab {
 		this.plugin = plugin;
 	}
 
-	/**
-	 * Mobile keyboards autocapitalise and autocorrect credentials into garbage, and the OS paste
-	 * gesture is awkward inside a settings modal, hence the paste button.
-	 */
+	/** Mobile keyboards otherwise autocapitalise and autocorrect credentials into garbage. */
 	private credentialField(
 		root: HTMLElement,
 		opts: { name: string; kind: CredentialKind; desc?: string; placeholder?: string; set: (v: string) => void },
@@ -364,9 +360,7 @@ class FilenSyncSettingTab extends PluginSettingTab {
 		const setting = new Setting(root).setName(opts.name);
 		if (opts.desc) setting.setDesc(opts.desc);
 
-		let field: TextComponent;
 		setting.addText((t) => {
-			field = t;
 			if (opts.placeholder) t.setPlaceholder(opts.placeholder);
 			if (opts.kind === "password") t.inputEl.type = "password";
 			// Attributes, not properties: the autocapitalize property reflects "off" back as "none".
@@ -374,27 +368,9 @@ class FilenSyncSettingTab extends PluginSettingTab {
 			t.inputEl.setAttribute("autocorrect", "off");
 			t.inputEl.setAttribute("autocomplete", "off");
 			t.inputEl.setAttribute("spellcheck", "false");
+			// Fires for pasted text too, so a pasted value is cleaned up the same way.
 			t.onChange((v) => opts.set(normalizeCredential(opts.kind, v)));
 		});
-
-		setting.addExtraButton((b) =>
-			b
-				.setIcon("clipboard-paste")
-				.setTooltip("Paste from clipboard")
-				.onClick(async () => {
-					try {
-						const value = normalizeCredential(opts.kind, await navigator.clipboard.readText());
-						if (!value) {
-							new Notice("Filen: the clipboard is empty.");
-							return;
-						}
-						field.setValue(value);
-						opts.set(value);
-					} catch {
-						new Notice("Filen: could not read the clipboard. Type into the field instead.");
-					}
-				}),
-		);
 	}
 
 	display(): void {

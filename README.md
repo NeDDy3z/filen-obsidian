@@ -17,7 +17,7 @@ Once it is listed, Settings, Community plugins, Browse, search for Filen will do
 ## Setup
 
 1. Set **Folder on Filen** if you want something other than `Obsidian/<vault name>`. It is created if it does not exist.
-2. Enter your Filen email, password and two-factor code, then press **Log in**. Only the derived account keys are stored, never the password. Each field has a paste button beside it that reads the clipboard directly.
+2. Enter your Filen email, password and two-factor code, then press **Log in**. Only the derived account keys are stored, never the password. Pasted values are tidied up, so a trailing newline from a password manager or the space in `123 456` from an authenticator app does not break the login.
 3. Press **Check connection**. It uploads, downloads, compares and deletes a small test file, so a pass means the whole round trip works against your account.
 4. Pick a direction and an auto-sync trigger.
 5. Sync from the ribbon icon, the status bar item, or the **Sync now** command.

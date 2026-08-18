@@ -101,7 +101,7 @@ export class FilenRemote {
 			parent,
 			name,
 		});
-		this.items.set(path, item as CloudItemTree);
+		this.items.set(path, item);
 	}
 
 	/** Serialized: parallel uploads into one new folder would otherwise each create it. */
@@ -143,7 +143,7 @@ export class FilenRemote {
 	async checkConnection(): Promise<void> {
 		const name = `.filen-sync-check-${Date.now()}`;
 		const sent = new TextEncoder().encode(`check ${name}`);
-		await this.write(name, sent.buffer as ArrayBuffer, Date.now());
+		await this.write(name, sent.buffer, Date.now());
 		await this.walk();
 		const back = new Uint8Array(await this.read(name));
 		await this.trash(name, false);

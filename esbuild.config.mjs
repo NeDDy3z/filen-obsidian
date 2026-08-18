@@ -20,11 +20,6 @@ export class Duplex {}
 export const pipeline = nope
 export default { Readable, Writable, Transform, Duplex, pipeline }`,
 	agentkeepalive: "export class HttpsAgent {}\nexport class HttpAgent {}\nexport default HttpAgent",
-	// Only reached from derKeyToPem, which the SDK calls solely on its node and react-native
-	// paths. Stubbing it drops `elliptic` from the bundle, whose GHSA-848j advisory has no fix.
-	"js-crypto-key-utils": `const nope = () => { throw new Error("js-crypto-key-utils is not used in the browser build") }
-export class Key { constructor() { nope() } }
-export default { Key }`,
 };
 
 const stubNodeModules = {

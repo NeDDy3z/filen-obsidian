@@ -1,0 +1,7 @@
+{
+  "name": "js-crypto-key-utils",
+  "version": "1.0.7",
+  "description": "Local stand-in. @filen/sdk only calls this from its node and react-native paths, which an Obsidian build never takes. Replacing it keeps its elliptic dependency, which has an unfixable advisory, out of the tree entirely.",
+  "main": "index.js",
+  "license": "Apache-2.0"
+}

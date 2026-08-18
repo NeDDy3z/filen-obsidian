@@ -20,6 +20,12 @@ export class Duplex {}
 export const pipeline = nope
 export default { Readable, Writable, Transform, Duplex, pipeline }`,
 	agentkeepalive: "export class HttpsAgent {}\nexport class HttpAgent {}\nexport default HttpAgent",
+	// Also replaced in package.json overrides so it stays out of the dependency tree, but
+	// stubbed here too: that keeps the build independent of how npm resolves the local
+	// replacement, which differs between npm versions.
+	"js-crypto-key-utils": `const nope = () => { throw new Error("js-crypto-key-utils is not used in the browser build") }
+export class Key { constructor() { nope() } }
+export default { Key }`,
 };
 
 const stubNodeModules = {

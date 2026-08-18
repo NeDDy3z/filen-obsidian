@@ -6,13 +6,21 @@ Sync your vault with [Filen](https://filen.io) end-to-end encrypted cloud storag
 
 ## Install
 
-Not in the community plugin list yet. Until it is, install it by hand:
+Not in the community plugin list yet, so pick one of these until it is.
 
-1. Download `main.js` and `manifest.json` from the latest release, or build them yourself (see [Development](#development)).
-2. Create the folder `<your vault>/.obsidian/plugins/filen-sync/` and copy both files into it.
+**With BRAT**, which also keeps it updated:
+
+1. Install [BRAT](https://github.com/TfTHacker/obsidian42-brat) from Settings, Community plugins, Browse.
+2. In BRAT's settings, press **Add Beta plugin** and enter `NeDDy3z/filen-obsidian`.
+3. Enable **Filen Sync** under Settings, Community plugins.
+
+**By hand**, if you would rather not add another plugin:
+
+1. Download `main.js` and `manifest.json` from the [latest release](https://github.com/NeDDy3z/filen-obsidian/releases/latest).
+2. Put both into `<your vault>/.obsidian/plugins/filen-sync/`, creating the folder if needed.
 3. Restart Obsidian, then enable **Filen Sync** under Settings, Community plugins.
 
-Once it is listed, Settings, Community plugins, Browse, search for Filen will do all of that for you. [BRAT](https://github.com/TfTHacker/obsidian42-brat) should also work for beta installs, though it has not been tested.
+Once it is in the community list, Settings, Community plugins, Browse, search for Filen will replace both of these.
 
 ## Setup
 

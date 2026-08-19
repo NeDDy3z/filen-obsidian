@@ -1,6 +1,6 @@
 {
   "name": "filen-obsidian",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "Sync your Obsidian vault with Filen end-to-end encrypted cloud storage",
   "main": "main.js",
   "type": "module",

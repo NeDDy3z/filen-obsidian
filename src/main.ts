@@ -1,5 +1,4 @@
 import {
-	debounce,
 	Notice,
 	normalizePath,
 	Platform,
@@ -86,7 +85,8 @@ export default class FilenSyncPlugin extends Plugin {
 	private status: HTMLElement | null = null;
 	private syncing = false;
 	private startupTimeout: number | null = null;
-	private afterIdle: (() => void) | null = null;
+	private idleTimeout: number | null = null;
+	private interval: number | null = null;
 	private rerunRequested = false;
 	/** Paths this sync wrote, so its own vault events do not look like your edits. */
 	private writtenByUs = new Set<string>();
@@ -115,24 +115,22 @@ export default class FilenSyncPlugin extends Plugin {
 		});
 		this.addSettingTab(new FilenSyncSettingTab(this.app, this));
 
+		// Registered unconditionally and read live, so changing the timing in settings takes
+		// effect on the next keystroke rather than on the next reload.
+		// Consumes one event per path this sync wrote, rather than ignoring everything while a
+		// sync runs, so an edit made mid-sync still schedules the next one.
+		const onChange = (file: TAbstractFile) => {
+			if (this.writtenByUs.delete(file.path)) return;
+			this.scheduleIdleSync();
+		};
+		this.registerEvent(this.app.vault.on("modify", onChange));
+		this.registerEvent(this.app.vault.on("create", onChange));
+		this.registerEvent(this.app.vault.on("delete", onChange));
+		this.registerEvent(this.app.vault.on("rename", onChange));
+		this.applyInterval();
+
 		if (this.settings.direction === "none") return;
 
-		if (this.settings.intervalMinutes > 0) {
-			this.registerInterval(window.setInterval(() => void this.sync(true), this.settings.intervalMinutes * 60_000));
-		}
-		if (this.settings.idleSeconds > 0) {
-			this.afterIdle = debounce(() => void this.sync(true), this.settings.idleSeconds * 1000, true);
-			// Consumes one event per path this sync wrote, rather than ignoring everything while a
-			// sync runs, so an edit made mid-sync still schedules the next one.
-			const onChange = (file: TAbstractFile) => {
-				if (this.writtenByUs.delete(file.path)) return;
-				this.afterIdle?.();
-			};
-			this.registerEvent(this.app.vault.on("modify", onChange));
-			this.registerEvent(this.app.vault.on("create", onChange));
-			this.registerEvent(this.app.vault.on("delete", onChange));
-			this.registerEvent(this.app.vault.on("rename", onChange));
-		}
 		if (this.settings.syncOnStartup) {
 			this.app.workspace.onLayoutReady(() => {
 				this.startupTimeout = window.setTimeout(() => void this.sync(true), 5_000);
@@ -142,10 +140,31 @@ export default class FilenSyncPlugin extends Plugin {
 
 	onunload(): void {
 		if (this.startupTimeout !== null) window.clearTimeout(this.startupTimeout);
+		if (this.idleTimeout !== null) window.clearTimeout(this.idleTimeout);
+		if (this.interval !== null) window.clearInterval(this.interval);
+	}
+
+	/** Restarted on every edit, so it fires once the whole vault has been quiet long enough. */
+	private scheduleIdleSync(): void {
+		if (this.idleTimeout !== null) window.clearTimeout(this.idleTimeout);
+		this.idleTimeout = null;
+		if (this.settings.idleSeconds <= 0 || this.settings.direction === "none") return;
+		this.idleTimeout = window.setTimeout(() => {
+			this.idleTimeout = null;
+			void this.sync(true);
+		}, this.settings.idleSeconds * 1000);
+	}
+
+	private applyInterval(): void {
+		if (this.interval !== null) window.clearInterval(this.interval);
+		this.interval = null;
+		if (this.settings.intervalMinutes <= 0 || this.settings.direction === "none") return;
+		this.interval = window.setInterval(() => void this.sync(true), this.settings.intervalMinutes * 60_000);
 	}
 
 	async saveSettings(): Promise<void> {
 		await this.saveData(this.settings);
+		this.applyInterval();
 	}
 
 	newRemote(): FilenRemote {
@@ -528,12 +547,12 @@ class FilenSyncSettingTab extends PluginSettingTab {
 					},
 					{
 						name: "Sync after you stop typing",
-						desc: "Seconds of no edits before syncing. 0 turns it off. Waits for the whole vault to go quiet, so it runs once after a writing session rather than once per keystroke. Applies after a reload.",
+						desc: "Seconds of no edits before syncing. 0 turns it off. Waits for the whole vault to go quiet, so it runs once after a writing session rather than once per keystroke.",
 						control: { type: "number", key: "idleSeconds", min: 0, step: 1, defaultValue: 0 },
 					},
 					{
 						name: "Auto-sync interval",
-						desc: "Minutes between automatic syncs. 0 turns it off. Applies after a reload.",
+						desc: "Minutes between automatic syncs. 0 turns it off.",
 						control: { type: "number", key: "intervalMinutes", min: 0, step: 1, defaultValue: 0 },
 					},
 					{

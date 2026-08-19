@@ -211,6 +211,12 @@ export default class FilenSyncPlugin extends Plugin {
 			local.walk(this.settings.configSync !== "off"),
 			remote.walk(),
 		]);
+		// An empty vault listing against a non-empty snapshot means the index was not ready, not
+		// that you deleted everything. Reading it literally would trash the whole Filen folder.
+		if (localAll.length === 0 && Object.keys(snapshot).length > 0) {
+			throw new Error("The vault listing came back empty, so nothing was changed. Try again in a moment.");
+		}
+
 		const localBy = new Map(localAll.filter(keep).map((e) => [e.path, e]));
 		const remoteBy = new Map(remoteAll.filter(keep).map((e) => [e.path, e]));
 		const direction = this.settings.direction;

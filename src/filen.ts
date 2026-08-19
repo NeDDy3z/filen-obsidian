@@ -61,7 +61,10 @@ export class FilenRemote {
 
 		const out: Entry[] = [];
 		for (const [key, item] of Object.entries(tree)) {
-			const path = key.replace(/^\/+/, "");
+			// Keyed the same way the vault reports paths, so an accented name stored here in
+			// decomposed form still matches its local counterpart instead of looking like a
+			// separate file. Lookups keep the item, so requests still use its uuid, not this path.
+			const path = key.replace(/^\/+/, "").normalize("NFC");
 			if (path === "") continue;
 			this.items.set(path, item);
 			if (item.type === "directory") {

@@ -1,50 +1,59 @@
-import { normalizePath, type App, type DataAdapter } from "obsidian";
+import { normalizePath, TFile, TFolder, type App, type DataAdapter } from "obsidian";
 import type { Entry } from "./sync.ts";
 
 /**
  * The vault side.
  *
- * Uses the Adapter API rather than the Vault API, which the plugin guidelines otherwise
- * prefer: Vault.getFiles() hides dotfiles, so it cannot see the config folder at all.
+ * Reads the file list from Obsidian's own index rather than walking the adapter. Adapter.list()
+ * hands back NFC paths but stats an unresolved NFC-directory plus the raw on-disk name, so on
+ * Linux it throws ENOENT for anything inside a folder whose real name is decomposed (NFD).
+ * The index is immune, keeps its own NFC-to-real-name mapping that every other adapter call
+ * resolves through, and already carries mtime and size.
  */
 export class LocalVault {
+	private readonly app: App;
 	private readonly fs: DataAdapter;
 	private readonly configDir: string;
 	private readonly stateDir: string;
 
 	constructor(app: App, configDir: string, stateDir: string) {
+		this.app = app;
 		this.fs = app.vault.adapter;
 		this.configDir = configDir;
 		this.stateDir = stateDir;
 	}
 
-	private isForbidden(path: string): boolean {
-		return (
-			path === this.stateDir ||
-			path.startsWith(`${this.stateDir}/`) ||
-			path === ".trash" ||
-			path.startsWith(".trash/")
-		);
-	}
-
 	async walk(includeConfigDir: boolean): Promise<Entry[]> {
 		const out: Entry[] = [];
-		const visit = async (dir: string): Promise<void> => {
-			const { files, folders } = await this.fs.list(dir);
-			for (const path of folders) {
-				if (this.isForbidden(path)) continue;
-				if (!includeConfigDir && path === this.configDir) continue;
-				out.push({ path, isDir: true, mtime: 0, size: 0 });
-				await visit(path);
-			}
-			for (const path of files) {
-				if (this.isForbidden(path)) continue;
-				const stat = await this.fs.stat(path);
-				if (stat) out.push({ path, isDir: false, mtime: stat.mtime, size: stat.size });
-			}
-		};
-		await visit("/");
+		for (const f of this.app.vault.getAllLoadedFiles()) {
+			if (f.path === "/" || f.path === "") continue;
+			if (f instanceof TFolder) out.push({ path: f.path, isDir: true, mtime: 0, size: 0 });
+			else if (f instanceof TFile) out.push({ path: f.path, isDir: false, mtime: f.stat.mtime, size: f.stat.size });
+		}
+		// The index deliberately omits dotfolders, so the config folder still needs walking.
+		if (includeConfigDir) await this.walkConfig(this.configDir, out);
 		return out;
+	}
+
+	private async walkConfig(dir: string, out: Entry[]): Promise<void> {
+		let listing: { files: string[]; folders: string[] };
+		try {
+			listing = await this.fs.list(dir);
+		} catch (err) {
+			throw new Error(
+				`Could not read ${dir}. If its name contains accented characters, rename it to ` +
+					`precomposed Unicode (NFC) or turn off config syncing. Cause: ${err instanceof Error ? err.message : String(err)}`,
+			);
+		}
+		for (const path of listing.folders) {
+			if (path === this.stateDir) continue;
+			out.push({ path, isDir: true, mtime: 0, size: 0 });
+			await this.walkConfig(path, out);
+		}
+		for (const path of listing.files) {
+			const stat = await this.fs.stat(path);
+			if (stat) out.push({ path, isDir: false, mtime: stat.mtime, size: stat.size });
+		}
 	}
 
 	read(path: string): Promise<ArrayBuffer> {

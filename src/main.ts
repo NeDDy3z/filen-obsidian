@@ -59,6 +59,9 @@ const DEFAULT_SETTINGS: FilenSyncSettings = {
 
 const TRANSFER_CONCURRENCY = 4;
 
+/** Actions that change the vault, as opposed to Filen. */
+const LOCAL_WRITES: Action["type"][] = ["download", "mkdirLocal", "conflict", "delLocal"];
+
 type CredentialKind = "email" | "password" | "code";
 
 /**
@@ -227,6 +230,7 @@ export default class FilenSyncPlugin extends Plugin {
 		const clashes: string[] = [];
 		let conflicts = 0;
 		let done = 0;
+		let configWrites = 0;
 
 		const record = (path: string, e: Entry) => {
 			snapshot[path] = { mtime: e.mtime, size: e.size, isDir: e.isDir };
@@ -295,9 +299,11 @@ export default class FilenSyncPlugin extends Plugin {
 			done++;
 		};
 
+		const configDir = this.app.vault.configDir;
 		const guarded = async (a: Action): Promise<void> => {
 			try {
 				await apply(a);
+				if (LOCAL_WRITES.includes(a.type) && a.path.startsWith(`${configDir}/`)) configWrites++;
 			} catch (err) {
 				// One unreadable file must not stop the rest of the vault.
 				errors.push(`${a.type} ${a.path}: ${err instanceof Error ? err.message : String(err)}`);
@@ -327,6 +333,14 @@ export default class FilenSyncPlugin extends Plugin {
 
 		if (clashes.length > 0) {
 			new Notice(`Filen sync skipped ${clashes.length} path(s) that are a file on one side and a folder on the other.`);
+		}
+		if (configWrites > 0) {
+			// Obsidian reads the enabled-plugin lists and the theme once, at startup, and keeps
+			// them in memory. Downloading them changes nothing until it starts again.
+			new Notice(
+				`Filen sync updated ${configWrites} settings file(s). Reload Obsidian to enable the synced plugins and theme.`,
+				15_000,
+			);
 		}
 		if (errors.length > 0) console.error("[filen-sync] failures:\n" + errors.join("\n"));
 

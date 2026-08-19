@@ -88,6 +88,8 @@ Modification times travel in both directions, which is what stops two devices bo
 | Plugins and themes | Plugin code, the enabled-plugin lists, `appearance.json`, `hotkeys.json`, `themes/`, `snippets/` |
 | Everything except window layout | The whole folder, per-plugin settings included |
 
+Synced settings only take effect after Obsidian restarts. It reads the enabled-plugin lists and the theme once at startup and holds them in memory, so a downloaded `community-plugins.json` or `appearance.json` changes nothing on a running app. The plugin tells you when a sync has written settings files. Reload reasonably promptly: if you change a setting first, Obsidian writes its in-memory copy back over the downloaded one, and the next sync uploads that instead.
+
 `workspace.json` is never synced in any mode. Obsidian rewrites it every time you move a pane, so syncing it means two devices fighting over window layout forever, and a phone layout is not a desktop layout anyway.
 
 The middle mode exists because plugin code is what you actually want on a new device, while `plugins/<id>/data.json` is the risky part: a running plugin rewrites its own settings from memory at unpredictable moments, so a downloaded copy can be clobbered or read half-written, and those settings are often device-specific. Pick "Everything" if you want it anyway.

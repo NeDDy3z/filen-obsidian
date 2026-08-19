@@ -59,6 +59,8 @@ On desktop the status bar shows the current state and clicking it syncs. Mobile 
 
 Every sync compares three things: your vault now, Filen now, and a snapshot of the last successful sync kept per device. The snapshot is what tells a deletion apart from a new file.
 
+To do that it lists every file in the vault and reads each one's path, size and modification time. A sync plugin cannot decide what to transfer without seeing what is there. Exclusions and the `.obsidian` setting are applied to that listing afterwards, and file contents are only ever read for files that are actually being uploaded.
+
 | At last sync | In vault | On Filen | Result |
 | --- | --- | --- | --- |
 | no | yes | no | upload |

@@ -67,6 +67,12 @@ export class LocalVault {
 		await this.fs.writeBinary(path, data, { mtime, ctime: mtime });
 	}
 
+	async move(from: string, to: string): Promise<void> {
+		const slash = to.lastIndexOf("/");
+		if (slash > 0) await this.mkdir(to.slice(0, slash));
+		await this.fs.rename(from, to);
+	}
+
 	async mkdir(path: string): Promise<void> {
 		if (!(await this.fs.exists(path))) await this.fs.mkdir(path);
 	}

@@ -25,7 +25,7 @@ Once it is in the community list, Settings, Community plugins, Browse, search fo
 ## Setup
 
 1. Set **Folder on Filen** if you want something other than `Obsidian/<vault name>`. It is created if it does not exist.
-2. Enter your Filen email, password and two-factor code, then press **Log in**. Only the derived account keys are stored, never the password. Pasted values are tidied up, so a trailing newline from a password manager or the space in `123 456` from an authenticator app does not break the login.
+2. Enter your Filen email, password and two-factor code, then press **Log in**. Only the derived account keys are stored, in this device's keychain through Obsidian's secret storage, never the password. Pasted values are tidied up, so a trailing newline from a password manager or the space in `123 456` from an authenticator app does not break the login.
 3. Press **Check connection**. It uploads, downloads, compares and deletes a small test file, so a pass means the whole round trip works against your account.
 4. Pick a direction and an auto-sync trigger.
 5. Sync from the ribbon icon, the status bar item, or the **Sync now** command.
@@ -74,6 +74,8 @@ To do that it lists every file in the vault and reads each one's path, size and 
 
 Conflicts keep both copies. The Filen version is saved next to yours as `note.conflict-20260818-143005.md` and your version is uploaded. Nothing is merged, nothing is silently overwritten.
 
+Renames and moves are applied as moves on the other side, not as a delete plus a fresh transfer. A deleted path and a new one are paired when the new file has the same size and modification time the old one had at the last sync, and only when exactly one file matches. If you rename a note and edit it before the next sync, it falls back to delete plus upload, which loses nothing.
+
 Deletions are recoverable. Local ones go to the vault `.trash`, remote ones to the Filen trash, and Filen keeps previous versions of overwritten files.
 
 Modification times travel in both directions, which is what stops two devices bouncing the same file back and forth forever.
@@ -102,6 +104,7 @@ This plugin's own folder is always skipped, so your credentials and this device'
 npm install
 npm run dev     # watch build into main.js
 npm run build   # typecheck and minified build
+npm test        # decision table tests, plain node:test
 ```
 
 | File | What it is |
@@ -121,9 +124,9 @@ gh attestation verify main.js -R NeDDy3z/filen-obsidian
 
 ## Caveats
 
-- Credentials sit unencrypted in `.obsidian/plugins/filen-sync/data.json`, as with any Obsidian sync plugin. They grant full access to your Filen drive, so treat vault backups as sensitive.
+- The account keys live in Obsidian's secret storage on each device, not in the vault, so they are not in vault backups. They grant full access to your Filen drive. Versions up to 0.1.7 kept them in `data.json`; they are moved out on the first load after updating.
 - `@filen/sdk` calls itself a work in progress. The version is pinned exactly.
-- Files are held in memory during transfer, so exclude very large attachments.
+- Files are held in memory during transfer, so exclude very large attachments or set **Max file size**. A file over the limit on either side is skipped on both, never deleted.
 - No file watcher beyond the triggers above, so notes can be up to one interval stale.
 - Requires Obsidian 1.13.0 or later, since the settings use the declarative settings API added in that release.
 

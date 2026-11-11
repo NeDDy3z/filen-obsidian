@@ -16,7 +16,9 @@ export type Action =
 	| { type: "delRemote"; path: string; isDir: boolean }
 	| { type: "conflict"; path: string }
 	| { type: "typeClash"; path: string }
-	| { type: "forget"; path: string };
+	| { type: "forget"; path: string }
+	| { type: "moveRemote"; from: string; path: string }
+	| { type: "moveLocal"; from: string; path: string };
 
 export type ConfigSyncMode = "off" | "plugins" | "all";
 
@@ -43,6 +45,8 @@ function order(actions: Action[]): Action[] {
 		delRemote: 2,
 		typeClash: 3,
 		forget: 3,
+		moveRemote: 1,
+		moveLocal: 1,
 	};
 	// Parents before children, except for deletes, which go deepest first.
 	return actions.sort((a, b) => {
@@ -102,6 +106,42 @@ export function plan(local: Entry[], remote: Entry[], snapshot: Snapshot): Actio
 	}
 
 	return order(actions);
+}
+
+/**
+ * Turns a delete on one side plus a new file on the other into a move, when the new file is
+ * the only one matching the deleted file's last-synced size and mtime. Renames keep size and mtime.
+ * shortcut: rename plus edit in one sync window is not detected, falls back to delete + transfer.
+ */
+export function detectMoves(actions: Action[], local: Entry[], remote: Entry[], snapshot: Snapshot): Action[] {
+	const L = new Map(local.map((e) => [e.path, e]));
+	const R = new Map(remote.map((e) => [e.path, e]));
+	const matches = (s: Snapshot[string], e: Entry) => s.size > 0 && !changed(e, s);
+	const replaced = new Map<Action, Action>();
+	const dropped = new Set<Action>();
+
+	const pair = (delType: "delRemote" | "delLocal", newType: "upload" | "download", moveType: "moveRemote" | "moveLocal") => {
+		// The side that still holds the old path, and the side the new file appeared on.
+		const [kept, fresh] = delType === "delRemote" ? [R, L] : [L, R];
+		const dels = actions.filter(
+			(a): a is Extract<Action, { type: "delRemote" | "delLocal" }> =>
+				a.type === delType && !a.isDir && kept.has(a.path) && !changed(kept.get(a.path)!, snapshot[a.path]),
+		);
+		const news = actions.filter((a) => a.type === newType && !snapshot[a.path] && !kept.has(a.path));
+		for (const d of dels) {
+			const s = snapshot[d.path];
+			const hits = news.filter((n) => matches(s, fresh.get(n.path)!));
+			if (hits.length !== 1) continue;
+			const rivals = dels.filter((o) => matches(snapshot[o.path], fresh.get(hits[0].path)!));
+			if (rivals.length !== 1) continue;
+			replaced.set(d, { type: moveType, from: d.path, path: hits[0].path });
+			dropped.add(hits[0]);
+		}
+	};
+
+	pair("delRemote", "upload", "moveRemote");
+	pair("delLocal", "download", "moveLocal");
+	return actions.filter((a) => !dropped.has(a)).map((a) => replaced.get(a) ?? a);
 }
 
 /** `notes/a.md` becomes `notes/a.conflict-20260818-143000.md`. */

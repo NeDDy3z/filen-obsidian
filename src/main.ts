@@ -17,6 +17,7 @@ import {
 	applyDirection,
 	conflictPath,
 	decodeSnapshot,
+	detectMoves,
 	encodeSnapshot,
 	makeConfigFilter,
 	makeExcluder,
@@ -42,6 +43,9 @@ interface FilenSyncSettings {
 	configSync: ConfigSyncMode;
 	syncOnStartup: boolean;
 	excludes: string;
+	maxFileMB: number;
+	/** Not secret itself: names this vault's entry in the OS keychain. */
+	secretId: string;
 }
 
 const DEFAULT_SETTINGS: FilenSyncSettings = {
@@ -54,12 +58,14 @@ const DEFAULT_SETTINGS: FilenSyncSettings = {
 	configSync: "off",
 	syncOnStartup: true,
 	excludes: "",
+	maxFileMB: 0,
+	secretId: "",
 };
 
 const TRANSFER_CONCURRENCY = 4;
 
 /** Actions that change the vault, as opposed to Filen. */
-const LOCAL_WRITES: Action["type"][] = ["download", "mkdirLocal", "conflict", "delLocal"];
+const LOCAL_WRITES: Action["type"][] = ["download", "mkdirLocal", "conflict", "delLocal", "moveLocal"];
 
 type CredentialKind = "email" | "password" | "code";
 
@@ -96,6 +102,11 @@ export default class FilenSyncPlugin extends Plugin {
 		this.settings = { ...DEFAULT_SETTINGS, ...saved };
 		if (!saved?.configSync && saved?.syncConfigDir) this.settings.configSync = "all";
 		if (!this.settings.remoteRoot) this.settings.remoteRoot = `Obsidian/${this.app.vault.getName()}`;
+		if (!this.settings.secretId) this.settings.secretId = `filen-sync-${crypto.randomUUID()}`;
+		const secret = this.app.secretStorage.getSecret(this.settings.secretId);
+		this.settings.credentials = saved?.credentials ?? (secret ? (JSON.parse(secret) as FilenSDKConfig) : null);
+		// Versions up to 0.1.7 kept the keys in data.json. Saving moves them to the keychain.
+		if (saved?.credentials) await this.saveSettings();
 
 		// Status bar items are desktop only, so mobile leans on notices instead.
 		if (!Platform.isMobile) {
@@ -163,7 +174,9 @@ export default class FilenSyncPlugin extends Plugin {
 	}
 
 	async saveSettings(): Promise<void> {
-		await this.saveData(this.settings);
+		const { credentials, ...rest } = this.settings;
+		this.app.secretStorage.setSecret(this.settings.secretId, credentials ? JSON.stringify(credentials) : "");
+		await this.saveData(rest);
 		this.applyInterval();
 	}
 
@@ -227,12 +240,18 @@ export default class FilenSyncPlugin extends Plugin {
 
 		const excluded = makeExcluder(this.settings.excludes.split("\n"));
 		const configFilter = makeConfigFilter(this.settings.configSync, this.app.vault.configDir);
-		const keep = (e: Entry) => !excluded(e.path) && configFilter(e);
 
 		const [localAll, remoteAll] = await Promise.all([
 			local.walk(this.settings.configSync !== "off"),
 			remote.walk(),
 		]);
+		// Dropped from both sides when either copy is too big. Dropping only the big copy would
+		// read as a delete and trash the other one.
+		const maxBytes = this.settings.maxFileMB * 1024 * 1024;
+		const oversized = new Set(
+			maxBytes > 0 ? [...localAll, ...remoteAll].filter((e) => e.size > maxBytes).map((e) => e.path) : [],
+		);
+		const keep = (e: Entry) => !excluded(e.path) && !oversized.has(e.path) && configFilter(e);
 		// An empty vault listing against a non-empty snapshot means the index was not ready, not
 		// that you deleted everything. Reading it literally would trash the whole Filen folder.
 		if (localAll.length === 0 && Object.keys(snapshot).length > 0) {
@@ -242,7 +261,14 @@ export default class FilenSyncPlugin extends Plugin {
 		const localBy = new Map(localAll.filter(keep).map((e) => [e.path, e]));
 		const remoteBy = new Map(remoteAll.filter(keep).map((e) => [e.path, e]));
 		const direction = this.settings.direction;
-		const actions = applyDirection(plan([...localBy.values()], [...remoteBy.values()], snapshot), direction);
+		const localKept = [...localBy.values()];
+		const remoteKept = [...remoteBy.values()];
+		const actions = detectMoves(
+			applyDirection(plan(localKept, remoteKept, snapshot), direction),
+			localKept,
+			remoteKept,
+			snapshot,
+		);
 		this.writtenByUs.clear();
 
 		const errors: string[] = [];
@@ -308,6 +334,17 @@ export default class FilenSyncPlugin extends Plugin {
 					await remote.trash(a.path, a.isDir);
 					delete snapshot[a.path];
 					break;
+				case "moveRemote":
+					await remote.move(a.from, a.path);
+					snapshot[a.path] = snapshot[a.from];
+					delete snapshot[a.from];
+					break;
+				case "moveLocal":
+					await local.move(a.from, a.path);
+					this.writtenByUs.add(a.path);
+					snapshot[a.path] = snapshot[a.from];
+					delete snapshot[a.from];
+					break;
 				case "typeClash":
 					clashes.push(a.path);
 					return;
@@ -331,6 +368,7 @@ export default class FilenSyncPlugin extends Plugin {
 
 		const group = (...types: Action["type"][]) => actions.filter((a) => types.includes(a.type));
 		for (const a of group("mkdirRemote", "mkdirLocal")) await guarded(a);
+		for (const a of group("moveRemote", "moveLocal")) await guarded(a);
 		const transfers = group("upload", "download", "conflict");
 		let n = 0;
 		await pool(transfers, TRANSFER_CONCURRENCY, async (a) => {
@@ -514,7 +552,7 @@ class FilenSyncSettingTab extends PluginSettingTab {
 					},
 					{
 						name: "Log in",
-						desc: "Only the derived account keys are stored. The password is never saved.",
+						desc: "Only the derived account keys are stored, in this device's keychain. The password is never saved.",
 						visible: loggedOut,
 						render: (setting) => {
 							setting.addButton((b) => b.setButtonText("Log in").setCta().onClick(() => this.logIn(b)));
@@ -577,6 +615,11 @@ class FilenSyncSettingTab extends PluginSettingTab {
 						name: "Exclude",
 						desc: "One glob per line, matched against vault paths. * stops at /, ** does not.",
 						control: { type: "textarea", key: "excludes", placeholder: "*.pdf\nattachments/**", rows: 4 },
+					},
+					{
+						name: "Max file size",
+						desc: "Megabytes. Bigger files are skipped on both sides, never deleted. 0 turns it off. Files are held in memory while they transfer, so this keeps large videos and PDFs from slowing down note syncing.",
+						control: { type: "number", key: "maxFileMB", min: 0, step: 1, defaultValue: 0 },
 					},
 					{
 						name: "Force sync",

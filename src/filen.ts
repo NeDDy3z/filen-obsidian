@@ -107,6 +107,20 @@ export class FilenRemote {
 		this.items.set(path, item);
 	}
 
+	async move(from: string, to: string): Promise<void> {
+		const item = this.items.get(from);
+		if (!item || item.type !== "file") throw new Error(`Not a file on Filen: ${from}`);
+		const slash = to.lastIndexOf("/");
+		const name = slash < 0 ? to : to.slice(slash + 1);
+		const parent = slash < 0 ? this.rootUUID : await this.mkdir(to.slice(0, slash));
+		const { uuid, size, mime, key, lastModified, creation, hash } = item;
+		const metadata = { name: item.name, size, mime, key, lastModified, creation, hash };
+		if (parent !== item.parent) await this.sdk.cloud().moveFile({ uuid, to: parent, metadata });
+		if (name !== item.name) await this.sdk.cloud().renameFile({ uuid, metadata, name });
+		this.items.delete(from);
+		this.items.set(to, { ...item, name, parent });
+	}
+
 	/** Serialized: parallel uploads into one new folder would otherwise each create it. */
 	async mkdir(path: string): Promise<string> {
 		const inFront = this.mkdirChain;
